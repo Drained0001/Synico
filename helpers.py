@@ -173,7 +173,13 @@ class ViewMenu(menus.Menu):
                 await self._event.wait()
 
     def send_with_view(self, messageable, *args, **kwargs):
-        return messageable.send(*args, **kwargs, view=self.build_view(), ephemeral=True)
+        if isinstance(messageable, discord.TextChannel):
+            return messageable.send(*args, **kwargs, view=self.build_view())
+
+        else:
+            return messageable.send(
+                *args, **kwargs, view=self.build_view(), ephemeral=True
+            )
 
     def stop(self):
         self._running = False
@@ -183,14 +189,17 @@ class ViewMenu(menus.Menu):
 
 
 class ViewMenuPages(menus.MenuPages, ViewMenu):
-    def __init__(self, source, **kwargs):
+    def __init__(self, source, hidden, **kwargs):
         self._source = source
         self.current_page = 0
+
         super().__init__(source, **kwargs)
+        self.hidden = hidden
 
     async def send_initial_message(self, ctx, channel):
         page = await self._source.get_page(0)
         kwargs = await self._get_kwargs_from_page(page)
-        return await self.send_with_view(ctx, **kwargs)
-        # Swapped return await self.send_with_view(channel, **kwargs) with
-        # return await self.send_with_view(ctx, **kwargs) for compatibility
+        if self.hidden:
+            return await self.send_with_view(ctx, **kwargs)
+        else:
+            return await self.send_with_view(channel, **kwargs)

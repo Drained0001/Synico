@@ -1,13 +1,15 @@
 import asyncio
 import os
 import sys
-from configparser import ConfigParser
 import traceback
+from configparser import ConfigParser
 from typing import Callable, List, Optional, Union
 
 import aiohttp
 import discord
+import wavelink
 from discord.ext import commands
+from wavelink.ext import spotify
 
 from postgre import Database
 
@@ -63,6 +65,9 @@ class Bot(commands.Bot):
             intents=intents,
             owner_ids=[220418804176388097, 672498629864325140],
             allowed_mentions=discord.AllowedMentions.none(),
+            activity=discord.Activity(
+                type=discord.ActivityType.listening, name="/help"
+            ),
             # slash_command_guilds=[881812541012058132, 774524414871863316],
             slash_commands=True,
             message_commands=False,
@@ -111,6 +116,7 @@ class Bot(commands.Bot):
         """
         await asyncio.wait_for(self.cs.close(), 30)
         await asyncio.wait_for(self.pool.close(), 30)
+        await asyncio.wait_for(self.node.disconnect(), 30)
         await super().close()
 
     def extensions(self) -> None:
@@ -141,6 +147,17 @@ class Bot(commands.Bot):
         self.uptime = discord.utils.utcnow()
         self.embed = discord.Embed
         self.cs = aiohttp.ClientSession()
+        self.node = await wavelink.NodePool.create_node(
+            bot=self,
+            host=bot.config["LAVALINK"]["host"],
+            port=int(bot.config["LAVALINK"]["port"]),
+            password=bot.config["LAVALINK"]["password"],
+            region=bot.config["LAVALINK"]["region"],
+            spotify_client=spotify.SpotifyClient(
+                client_id=bot.config["SPOTIFY"]["client_id"],
+                client_secret=bot.config["SPOTIFY"]["client_secret"],
+            ),
+        )
 
     async def on_ready(self) -> None:
         """

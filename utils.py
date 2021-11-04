@@ -2,10 +2,12 @@ import contextlib
 import random
 import re
 import uuid
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import discord
 from discord.ext import commands, menus
+import wavelink
+from wavelink.ext import spotify
 
 from helpers import ViewMenuPages
 
@@ -46,7 +48,8 @@ async def check_uuid(
 async def start_menu(
     context: commands.Context,
     source: menus.ListPageSource,
-    delete_message_after: bool = False,
+    hidden: bool = True,
+    delete_message_after: bool = True,
     clear_reactions_after: bool = True,
 ) -> None:
     """
@@ -54,7 +57,9 @@ async def start_menu(
 
     Method initiates menu instance.
     """
-    menu = ViewMenuPages(source=source, clear_reactions_after=clear_reactions_after)
+    menu = ViewMenuPages(
+        source=source, hidden=hidden, delete_message_after=delete_message_after
+    )
     with contextlib.suppress(AttributeError):
         return await menu.start(context)
 
@@ -141,6 +146,16 @@ class HelpMenu(menus.ListPageSource):
 
     async def format_page(
         self, menu: menus.MenuPages, entries: list
+    ) -> Union[str, discord.Embed, dict]:
+        return entries
+
+
+class QueueList(menus.ListPageSource):
+    def __init__(self, data: list) -> None:
+        super().__init__(data, per_page=1)
+
+    async def format_page(
+        self, menu: menus.MenuPages, entries: List[discord.Embed]
     ) -> Union[str, discord.Embed, dict]:
         return entries
 
@@ -324,3 +339,127 @@ class BannedUserConverter(commands.Converter):
         banned_user = guild_bans.get(argument)
         if banned_user:
             return discord.Object(banned_user)
+
+
+youtube_regex = re.compile(
+    r"[&?]list=([^&]+)?|((?:youtube\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?"
+)
+spotify_regex = re.compile(
+    r"https?://open.spotify.com/(?P<type>album|playlist|track)/(?P<id>[a-zA-Z0-9]+)"
+)
+soundcloud_regex = re.compile(
+    r"^(?:(https?):\/\/)?(?:(?:www|m)\.)?(soundcloud\.com|snd\.sc)\/(.*)([&?]si=([^&]+))$"
+)
+
+
+class SoundcloudPlaylist(wavelink.abc.Playlist):
+    def __init__(self, data: Dict[str, Any]):
+        super().__init__(data)
+
+
+class TrackConverter(commands.Converter):
+    async def convert(
+        self, ctx: commands.Context, argument: str
+    ) -> Optional[wavelink.Track]:
+
+        async with ctx.typing():
+            youtube_matches = youtube_regex.findall(argument)
+            spotify_matches = spotify_regex.findall(argument)
+            soundcloud_matches = soundcloud_regex.findall(argument)
+
+            if youtube_matches:
+                matches: Tuple[str] = tuple(
+                    [match for match in youtube_matches[0] if match]
+                )
+
+                if "/watch?v=" in matches and [
+                    match for match in matches if "&list=" in match
+                ]:
+                    playlist_match = matches[-1][6:]
+                    playlist_extras = (
+                        len(playlist_match)
+                        if playlist_match.find("&index=") == -1
+                        else playlist_match.find("&index=")
+                    )
+
+                    track_id = matches[-2]
+                    playlist_id = playlist_match[:playlist_extras]
+                    track = await wavelink.YouTubeTrack.search(
+                        query=track_id, return_first=True
+                    )
+                    tracks = await ctx.bot._node.get_playlist(
+                        cls=wavelink.YouTubePlaylist, identifier=playlist_id
+                    )
+                    return track + tracks.tracks
+
+                elif "playlist" in matches:
+                    playlist_id = matches[-1][6:]
+                    tracks: wavelink.tracks.YouTubePlaylist = (
+                        await ctx.bot._node.get_playlist(
+                            cls=wavelink.YouTubePlaylist, identifier=playlist_id
+                        )
+                    )
+                    return tracks.tracks
+
+                elif "/watch?v=" in matches:
+                    track_id = matches[-1]
+                    track = await wavelink.YouTubeTrack.search(
+                        query=track_id, return_first=True
+                    )
+                    return track
+
+            elif spotify_matches:
+                matches: Tuple[str] = spotify_matches[0]
+
+                if matches[0] == "track":
+                    track_id = matches[-1]
+                    track = await spotify.SpotifyTrack.search(
+                        query=track_id, return_first=True
+                    )
+
+                elif matches[0] == "album" or matches[0] == "playlist":
+                    playlist_id = matches[-1]
+                    tracks = [
+                        track
+                        for track in spotify.SpotifyTrack.iterator(
+                            query=playlist_id, partial_tracks=True
+                        )
+                    ]
+                    return tracks
+
+            elif soundcloud_matches:
+                matches: Tuple[str] = soundcloud_matches[0]
+
+                if [match for match in matches if "sets" in match]:
+                    playlist_id = matches[-1]
+                    tracks = await ctx.bot._node.get_playlist(
+                        cls=SoundcloudPlaylist, identifier=argument
+                    )
+                    if tracks:
+                        playlist_tracks = [
+                            await wavelink.SoundCloudTrack.search(
+                                query=track["info"]["title"], return_first=True
+                            )
+                            for track in tracks.data["tracks"]
+                        ]
+                        return playlist_tracks
+
+                    return None
+
+                else:
+                    track_id = matches[-1]
+                    track = await ctx.bot._node.get_tracks(
+                        cls=wavelink.SoundCloudTrack, query=argument
+                    )
+                    return track
+
+            else:
+                track = await wavelink.YouTubeTrack.convert(ctx, argument)
+                if track:
+                    return track
+
+                track = await wavelink.SoundCloudTrack.convert(ctx, argument)
+                if track:
+                    return track
+
+                return None

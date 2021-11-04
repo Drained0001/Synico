@@ -148,6 +148,21 @@ def tag_perms(context: commands.Context, owner: int) -> bool:
     return False
 
 
+def dj_perms(context: commands.Context) -> bool:
+    if (
+        context.author.id == context.guild.owner_id
+        or context.guild.get_role(context.bot.admins.get(context.guild.id).get("mod"))
+        in context.author.roles
+        or context.guild.get_role(context.bot.admins.get(context.guild.id).get("admin"))
+        in context.author.roles
+        or has_admin(context)
+    ):
+
+        return True
+
+    return False
+
+
 class Errors(commands.Cog):
     """
     A class that inherits from
@@ -362,6 +377,9 @@ class Errors(commands.Cog):
                 context,
                 f"Failed to run {context.prefix}{context.invoked_with} due to {error.text.lower()}",
             )
+
+        elif isinstance(error, commands.CommandError):
+            await self.format_error(context, error)
 
         else:
             unhandled_error: List[str] = traceback.format_exception(

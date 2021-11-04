@@ -2,3 +2,4 @@ asyncpg
 git+https://github.com/iDevision/enhanced-discord.py
 git+https://github.com/Rapptz/discord-ext-menus
 pytz
+wavelink==1.0.0b30

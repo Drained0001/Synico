@@ -20,13 +20,14 @@ class Player(wavelink.Player):
             await self.play(track, replace=skip)
         except wavelink.QueueEmpty:
             await self.stop()
-            await self._channel.send("No songs remaining in queue.")
+            await self._channel.send("No songs remaining in queue.", delete_after=15)
 
     async def stop(self):
         await self.disconnect(force=True)
         return await super().stop()
 
     async def tracks(self):
+        yt_url = "https://www.youtube.com/results?search_query="
         cutoff = 10
         page = 1
         embeds = []
@@ -36,7 +37,9 @@ class Player(wavelink.Player):
                 title=f"{len(queue)} songs in queue",
                 description="\n".join(
                     [
-                        f"{index}. [{track.info['title']}]({track.info['uri']}) - {datetime.timedelta(seconds=track.duration)}"
+                        f"{index}. \
+                        [{track.query if isinstance(track, wavelink.PartialTrack) else track.info['title']}]({f'{yt_url}{track.query}'.replace(' ', '+') if isinstance(track, wavelink.PartialTrack) else track.info['uri']})\
+                        {'' if isinstance(track, wavelink.PartialTrack) else f'- {datetime.timedelta(seconds=track.duration)}'}"
                         for index, track in enumerate(
                             queue[slice : slice + cutoff], start=slice + 1
                         )
@@ -58,6 +61,19 @@ class Music(commands.Cog):
 
     def __init__(self, bot: Bot):
         self.bot = bot
+        self.cooldown = commands.CooldownMapping.from_cooldown(
+            1.0, 3.0, commands.BucketType.user
+        )
+
+    async def cog_check(self, ctx: commands.Context):
+        bucket = self.cooldown.get_bucket(ctx.message)
+        retry_after = bucket.update_rate_limit()
+        if retry_after:
+            raise commands.CommandError(
+                f"Woah! Slow down, please. Try again in {round(retry_after)} second(s)!"
+            )
+
+        return True
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -75,13 +91,12 @@ class Music(commands.Cog):
         embed.set_footer(
             text=f"Track length: {datetime.timedelta(seconds=track.duration)} | {player.queue.count} tracks in queue."
         )
-        await player._channel.send(embed=embed)
+        await player._channel.send(embed=embed, delete_after=15)
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(
         self, player: Player, track: wavelink.Track, reason: str
     ):
-        print("end", reason)
         if reason != "REPLACED":
             await player.next()
 
@@ -89,14 +104,12 @@ class Music(commands.Cog):
     async def on_wavelink_track_exception(
         self, player: Player, track: wavelink.Track, error
     ):
-        print("exception", error)
         await player.next(True)
 
     @commands.Cog.listener()
     async def on_wavelink_track_stuck(
         self, player: Player, track: wavelink.Track, threshold
     ):
-        print("stuck", threshold)
         await player.next(True)
 
     @commands.command()
@@ -162,7 +175,7 @@ class Music(commands.Cog):
         Skips the current song.
         """
         player: Player = context.bot.node.get_player(context.guild)
-        await context.send("Skipping...")
+        await context.send("Skipping...", delete_after=5)
         await player.next(True)
 
     @commands.command()
@@ -176,7 +189,7 @@ class Music(commands.Cog):
 
         elif player.is_playing():
             await player.pause()
-            await context.send("Paused song.")
+            await context.send("Paused song.", delete_after=5)
 
     @commands.command()
     async def resume(self, context: commands.Context):
@@ -186,7 +199,7 @@ class Music(commands.Cog):
         player: Player = context.bot.node.get_player(context.guild)
         if player.is_paused():
             await player.resume()
-            await context.send("Resumed song.")
+            await context.send("Resumed song.", delete_after=5)
 
         elif player.is_playing():
             await context.send("Already playing.", ephemeral=True)
@@ -198,11 +211,11 @@ class Music(commands.Cog):
         """
         player: Player = context.bot.node.get_player(context.guild)
         if player:
-            await context.send("Exiting...")
+            await context.send("Exiting...", delete_after=5)
             await player.stop()
             return
 
-        await context.send("Not currently playing tracks.", ephemeral=True)
+        await context.send("Not currently playing any tracks.", ephemeral=True)
 
     @play.before_invoke
     async def ensure_voice(self, context: commands.Context):

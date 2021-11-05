@@ -363,6 +363,7 @@ class TrackConverter(commands.Converter):
     ) -> Optional[wavelink.Track]:
 
         async with ctx.typing():
+            await ctx.defer()
             youtube_matches = youtube_regex.findall(argument)
             spotify_matches = spotify_regex.findall(argument)
             soundcloud_matches = soundcloud_regex.findall(argument)
@@ -402,7 +403,9 @@ class TrackConverter(commands.Converter):
                     return tracks.tracks
 
                 elif "/watch?v=" in matches:
-                    track_id = matches[-1]
+                    matches = list(matches)
+                    id_index = matches.index("/watch?v=") + 1
+                    track_id = matches[id_index]
                     track = await wavelink.YouTubeTrack.search(
                         query=track_id, return_first=True
                     )
@@ -421,7 +424,7 @@ class TrackConverter(commands.Converter):
                     playlist_id = matches[-1]
                     tracks = [
                         track
-                        for track in spotify.SpotifyTrack.iterator(
+                        async for track in spotify.SpotifyTrack.iterator(
                             query=playlist_id, partial_tracks=True
                         )
                     ]

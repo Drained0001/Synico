@@ -14,7 +14,7 @@ class Player(wavelink.Player):
         self._channel = channel
         self.queue = wavelink.Queue()
 
-    async def next(self, skip: bool = False):
+    async def next(self, skip: bool = True):
         try:
             track = self.queue.get()
             await self.play(track, replace=skip)
@@ -97,20 +97,23 @@ class Music(commands.Cog):
     async def on_wavelink_track_end(
         self, player: Player, track: wavelink.Track, reason: str
     ):
-        if reason != "REPLACED":
+        if reason == "REPLACED":
+            return
+
+        elif reason == "FINISHED":
             await player.next()
 
     @commands.Cog.listener()
     async def on_wavelink_track_exception(
         self, player: Player, track: wavelink.Track, error
     ):
-        await player.next(True)
+        await player.next()
 
     @commands.Cog.listener()
     async def on_wavelink_track_stuck(
         self, player: Player, track: wavelink.Track, threshold
     ):
-        await player.next(True)
+        await player.next()
 
     @commands.command()
     async def play(
@@ -135,13 +138,13 @@ class Music(commands.Cog):
             if len(query) > 1:
                 await context.send(
                     f"Added {query[0].title} + {len(query)} track(s) to the queue. {query[0].title}'s position {player.queue.find_position(query[0]) + 1}/{player.queue.count}.",
-                    ephemeral=True,
+                    delete_after=15,
                 )
 
             elif len(query) == 1:
                 await context.send(
                     f"Added {query[0].title} to the queue. Position {player.queue.find_position(query[0]) + 1}/{player.queue.count}.",
-                    ephemeral=True,
+                    delete_after=15,
                 )
 
         elif query:
@@ -149,7 +152,7 @@ class Music(commands.Cog):
             if player.queue.count >= 1:
                 await context.send(
                     f"Added {query.title} to the queue. Position {player.queue.find_position(query) + 1}/{player.queue.count}.",
-                    ephemeral=True,
+                    delete_after=15,
                 )
 
         else:
@@ -263,11 +266,7 @@ class Music(commands.Cog):
     async def add_track(self, context: commands.Context):
         player: Player = context.bot.node.get_player(context.guild)
         if not player.is_playing():
-            try:
-                track = player.queue.get()
-                await player.play(track, replace=False)
-            except wavelink.QueueEmpty:
-                pass
+            await player.next()
 
 
 def setup(bot: Bot):

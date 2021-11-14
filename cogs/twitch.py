@@ -166,7 +166,9 @@ class Twitch(commands.Cog):
 
     @commands.group()
     async def twitch(self, context: commands.Context):
-        pass
+        cmd = self.client.get_command(ctx.command.name)
+        desc = lambda x:x.description if x.description else "No description added"
+        await ctx.send(embed=discord.Embed(title=ctx.command.name, description=f"```{desc(cmd)}```", color=discord.Color.magenta(), timestamp=discord.utils.utcnow()).add_field(name="Sub Commands", value='\n'.join([f"`/{ctx.command.name} {_.name}`" for _ in cmd.commands]), inline=False))
 
     @twitch.group(name="update")
     async def twitch_update(self, context: commands.Context):
